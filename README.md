@@ -4,7 +4,7 @@ Daily reading material note
 
 ###重点
 1.	创建一个组合Operation，是一个SDWebImageCombinedOperation对象，这个对象负责对下载operation创建和管理，同时有缓存功能，是对下载和缓存两个过程的组合。
-2.	先去寻找这张图片 内存缓存和磁盘缓存，这两个功能在self.imageCache的queryDiskCacheForKey: done:方法中完成，这个方法的返回值既是一个缓存operation，最终被赋给上面的Operation的cacheOperation属性。在查找缓存的完成回调中的代码是重点：它会根据是否设置了SDWebImageRefreshCached选项和代理是否支持下载决定是否要进行下载，并对下载过程中遇到NSURLCache的情况做处理，还有下载失败的处理以及下载之后进行缓存，然后查看是否设置了形变选项并调用代理的形变方法进行对图片形变处理。
+2.	根据图片的url生成key，根据key寻找 内存缓存和磁盘缓存，这两个功能在self.imageCache的queryDiskCacheForKey: done:方法中完成，这个方法的返回值既是一个缓存operation，最终被赋给上面的Operation的cacheOperation属性。在查找缓存的完成回调中的代码是重点：它会根据是否设置了SDWebImageRefreshCached选项和代理是否支持下载决定是否要进行下载，并对下载过程中遇到NSURLCache的情况做处理，还有下载失败的处理以及下载之后进行缓存，然后查看是否设置了形变选项并调用代理的形变方法进行对图片形变处理。
 3.	将上面的下载方法返回的操作命名为subOperation，并在组合操作operation的cancelBlock代码块中添加对subOperation的cancel方法的调用。
 
 ```Objective-C
@@ -96,3 +96,82 @@ image为空，并且设置了延迟设置占位图，会将占位图设置为最
     }
 }
 ```
+
+
+*	SDWebImageManager
+
+```Objective-C
+/**
+ * The SDWebImageManager is the class behind the UIImageView+WebCache category and likes.
+ * It ties the asynchronous downloader (SDWebImageDownloader) with the image cache store (SDImageCache).
+ * You can use this class directly to benefit from web image downloading with caching in another context than
+ * a UIView.
+ *
+ * Here is a simple example of how to use SDWebImageManager:
+ *
+ * <a href='http://www.jobbole.com/members/java12'>@code</a>
+/*
+概述了SDWenImageManager的作用,其实UIImageVIew+WebCache这个Category背后执行操作的就是这个SDWebImageManager.它会绑定一个下载器也就是SDwebImageDownloader和一个缓存SDImageCache
+*/
+ 
+ 
+/**
+ * Downloads the image at the given URL if not present in cache or return the cached version otherwise.
+   若图片不在cache中,就根据给定的URL下载图片,否则返回cache中的图片 
+ *
+ * @param url            The URL to the image
+ * @param options        A mask to specify options to use for this request
+ * @param progressBlock  A block called while image is downloading
+ * @param completedBlock A block called when operation has been completed. 
+ *
+ *   This parameter is required. 
+ * 
+ *   This block has no return value and takes the requested UIImage as first parameter.
+ *   In case of error the image parameter is nil and the second parameter may contain an NSError.
+ *
+ *   The third parameter is an `SDImageCacheType` enum indicating if the image was retrieved from the local cache
+ *   or from the memory cache or from the network.
+ *
+ *   The last parameter is set to NO when the SDWebImageProgressiveDownload option is used and the image is 
+ *   downloading. This block is thus called repeatedly with a partial image. When image is fully downloaded, the
+ *   block is called a last time with the full image and the last parameter set to YES.
+ *
+ * @return Returns an NSObject conforming to SDWebImageOperation. Should be an instance of SDWebImageDownloaderOperation
+ */
+ 
+/*
+*第一个参数是必须的,就是image的url
+*第二个参数options你可以定制化各种各样的操作
+*第三个参数是一个回调block,用于图片下载过程中的回调
+*第四个参数是一个下载完成的回调,会在图片下载完成后回调
+*返回值是一个NSObject类,并且这个NSObject类是遵循一个协议这个协议叫SDWebImageOperation,这个协议里面只写了一个协议,就是一个cancel一个operation的协议
+*/
+- (id )downloadImageWithURL:(NSURL *)url
+                                         options:(SDWebImageOptions)options
+                                        progress:(SDWebImageDownloaderProgressBlock)progressBlock
+                                       completed:(SDWebImageCompletionWithFinishedBlock)completedBlock;
+```
+
+*	检查一个图片是否被缓存的方法：
+	1.	先判断是否在内存中，如果存在，主线程回调block，如果不存在，查询是否在磁盘中
+	2.	查询是否在磁盘中，主线程回调block
+
+```Objective-C
+
+- (BOOL)cachedImageExistsForURL:(NSURL *)url {
+  //调用上面的方法取到image的url对应的key
+    NSString *key = [self cacheKeyForURL:url];
+//首先检测内存缓存中时候存在这张图片,如果已有直接返回yes 
+    if ([self.imageCache imageFromMemoryCacheForKey:key] != nil) return YES;
+//如果内存缓存里面没有这张图片,那么就调用diskImageExistsWithKey这个方法去硬盘找
+    return [self.imageCache diskImageExistsWithKey:key];
+}
+ 
+// 检测硬盘里是否缓存了图片
+- (BOOL)diskImageExistsForURL:(NSURL *)url {
+ NSString *key = [self cacheKeyForURL:url];
+ return [self.imageCache diskImageExistsWithKey:key];
+}
+```
+
+*	在搜索一个个元素的时候NSSet比NSArray效率高,主要是它用到了一个算法hash(散列,哈希) ,比如你要存储A,一个hash算法直接就能找到A应该存储的位置;同样当你要访问A的时候,一个hash过程就能找到A存储的位置,对于NSArray,若想知道A到底在不在数组中,则需要遍历整个数据,显然效率较低了
