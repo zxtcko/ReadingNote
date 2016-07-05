@@ -177,3 +177,46 @@ image为空，并且设置了延迟设置占位图，会将占位图设置为最
 *	在搜索一个个元素的时候NSSet比NSArray效率高,主要是它用到了一个算法hash(散列,哈希) ,比如你要存储A,一个hash算法直接就能找到A应该存储的位置;同样当你要访问A的时候,一个hash过程就能找到A存储的位置,对于NSArray,若想知道A到底在不在数组中,则需要遍历整个数据,显然效率较低了
 
 #二、[GCD使用经验和技巧](http://tutuge.me/2015/04/03/something-about-gcd/)
+1.	使用Dispatch group来完成Multi网络请求的封装
+
+
+```Objective-C
+-(void)fetchConfigurationWithCompletion:(void (^)(NSError* error))completion
+{
+    // Define errors to be processed when everything is complete.
+    // One error per service; in this example we'll have two 
+    __block NSError *configError = nil;
+    __block NSError *preferenceError = nil;
+    
+    // Create the dispatch group
+    dispatch_group_t serviceGroup = dispatch_group_create();
+    
+    // Start the first service
+    dispatch_group_enter(serviceGroup);
+    [self.configService startWithCompletion:^(ConfigResponse *results, NSError* error){
+        // Do something with the results
+        configError = error;
+        dispatch_group_leave(serviceGroup);
+    }];
+    
+    // Start the second service
+    dispatch_group_enter(serviceGroup);
+    [self.preferenceService startWithCompletion:^(PreferenceResponse *results, NSError* error){
+        // Do something with the results
+        preferenceError = error;
+        dispatch_group_leave(serviceGroup);
+    }];
+    
+    dispatch_group_notify(serviceGroup,dispatch_get_main_queue(),^{
+        // Assess any errors
+        NSError *overallError = nil;
+        if (configError || preferenceError)
+        {
+            // Either make a new error or assign one of them to the overall error
+            overallError = configError ?: preferenceError;
+        }
+        // Now call the final completion block
+        completion(overallError);
+    });
+}
+```	
